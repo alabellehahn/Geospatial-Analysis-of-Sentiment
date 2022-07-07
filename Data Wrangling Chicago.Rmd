@@ -1,0 +1,706 @@
+---
+title: "Data Wrangling Chicago"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#Loading in Required libraries
+library(sf)
+library(tidyverse)
+library(tmap)
+library(leaflet)
+library(data.table)
+library(raster) 
+library(adehabitatHR)
+library(tidycensus)
+library(RColorBrewer)
+library(dplyr)
+options(tigris_use_cache = TRUE)
+```
+
+#Doing some initial cleaning 
+```{r}
+restaurant_data <- read.csv("review_data_Chicago.csv")
+
+
+#tidying data
+
+#Taking out all the nonsense rows
+restaurant_data <- restaurant_data[!grepl("Yelp for Business", restaurant_data$review),]
+
+restaurant_data <- restaurant_data[!grepl("Discover", restaurant_data$review),]
+
+restaurant_data <- restaurant_data[!grepl("About", restaurant_data$review),]
+
+restaurant_data <- restaurant_data[!grepl("Languages", restaurant_data$review),]
+
+# Creating Measuring for average polarity and subjectivity 
+restaurant_data <- restaurant_data %>%
+  group_by(name) %>%
+  mutate(avg_polarity = mean(polarity, na.rm = TRUE))
+
+restaurant_data <- restaurant_data %>%
+  group_by(name) %>%
+  mutate(avg_subjectivity = mean(subjectivity, na.rm = TRUE))
+
+#Trimming out miscellaneous category
+restaurant_data <- restaurant_data %>%
+  filter(broad_category != "misc")
+
+
+
+#REmoving unnecessary columns
+restaurant_data <- restaurant_data %>%
+  dplyr::select(-url, -review, -transactions, -review, -polarity, -subjectivity,-punctuation, -stopwords, -lowercase, -stopword_rate, -stopword_count,-char_count,-word_count, -image_url, -is_closed, -clean_review, -lemmatized, -price, -location, -phone, -display_phone, - cuisine_type)
+
+#Retrieving unique entries
+restaurant_data <- restaurant_data %>%
+  unique()
+
+
+
+#Standardizing polarity to be more evenly interpretable
+restaurant_data$avg_polarity <- (restaurant_data$avg_polarity - mean(restaurant_data$avg_polarity)) / sd(restaurant_data$avg_polarity)
+
+
+# Standardizing subjectivity 
+restaurant_data$avg_subjectivity <- (restaurant_data$avg_subjectivity - mean(restaurant_data$avg_subjectivity)) / sd(restaurant_data$avg_subjectivity)
+
+#Standardizing star rating along the same scale
+restaurant_data$rating <- (restaurant_data$rating - mean(restaurant_data$rating)) / sd(restaurant_data$rating)
+
+#Pivoting wider 
+restaurant_data <- restaurant_data %>%
+  pivot_wider(names_from = broad_category, values_from = c(rating, avg_polarity, avg_subjectivity))
+
+
+write.csv(restaurant_data,"C:/Users/label/Desktop/STATS/Final_Paper_Stuff/Chicago_wide.csv", row.names = FALSE)
+```
+
+```{r, making homebrew data easier to work with}
+
+restaurant_data_sf <- restaurant_data %>%
+  st_as_sf(coords = c("longitude", "latitude"))
+
+class(restaurant_data_sf)
+
+#Making sure the EPSG code is consistent with Census data from Chicago
+restaurant_data_sf <- st_set_crs(restaurant_data_sf, 3529)
+
+#Transforming to correct EPSG
+rest_data_sf <- st_transform(restaurant_data_sf, 3529)
+  #dplyr::select(rest_data_sf, avg_polarity, avg_subjectivity, geometry) <<- Not sure why this is here. Was is important at one point?
+
+rest_data_sf <- rest_data_sf %>%
+  unique()
+
+```
+
+
+# CENSUS DATA WRANGLING
+```{r Getting Data}
+# Plugging in API key to get the goods:
+census_api_key("8c445f434944dc4eed223566559b60f893849fed", install=TRUE, overwrite = TRUE)
+
+# Taking a look at the available variables:
+ACS17var <- load_variables(2017, "acs5", cache = TRUE)
+view(ACS17var)
+```
+
+
+
+
+
+# NEW METHOD OF VARIABLE COLLECTION FOR PROPORTIONS
+```{r}
+#Getting population data
+population_data <- get_acs(
+  geography = "tract",
+  variables = "B01003_001",
+  state = "IL",
+  county = "Cook",
+  geometry = TRUE,
+  year = 2020
+)%>%
+  st_transform(3529)%>%
+  dplyr::select(-variable,-moe) %>%
+  rename(pop_estimate = estimate)
+```
+
+```{r}
+# RACIAL COMPOSITION
+
+race_vars <- c(
+  White = "B03002_003",
+  Black = "B03002_004",
+  Native = "B03002_005",
+  Asian = "B03002_006",
+  HIPI = "B03002_007",
+  Hispanic = "B03002_012"
+)
+IL_race2 <- get_acs(
+  geography = "tract",
+  state = "IL",
+  county = "Cook",
+  variables = race_vars, 
+  geometry = TRUE,
+  output = "wide",
+  summary_var = "B03002_001",
+  year = 2020
+) 
+
+IL_race_percent <- IL_race2 %>%
+  mutate(percentWhite = 100 * (WhiteE / summary_est)) %>%
+  mutate(percentBlack = 100 * (BlackE / summary_est)) %>%
+  mutate(percentNative = 100 * (NativeE / summary_est)) %>%
+  mutate(percentAsian = 100 * (AsianE / summary_est)) %>%
+  mutate(percentHIPI = 100 * (HIPIE / summary_est)) %>%
+  mutate(percentHispanic = 100 * (HispanicE / summary_est)) %>%
+  dplyr::select(GEOID,NAME,percentWhite,
+                percentBlack,percentNative,
+                percentAsian, percentHIPI,
+                percentHispanic)
+```
+
+```{r}
+#EDUCATIONAL ATTAINMENT
+educ_vars <- c(hs_grad = "B15003_017",
+some_college = "B15003_020",
+associates = "B15003_021",
+bachelors = "B15003_022",
+masters = "B15003_023",
+professional = "B15003_024",
+phd = "B15003_025"
+)
+
+IL_educ <- get_acs(
+  geography = "tract",
+  state = "IL",
+  county = "Cook",
+  variables = educ_vars,
+  geometry = TRUE,
+  summary_var= "B15003_001",
+  output = "wide",
+  year = 2020
+  )
+
+IL_educ_percent <- IL_educ%>%
+  mutate(percent_hs_grad = 100 * (hs_gradE / summary_est)) %>%
+  mutate(percent_some_college = 100 * (some_collegeE / summary_est)) %>%
+  mutate(percent_associates = 100 * (associatesE / summary_est)) %>%
+  mutate(percent_bachelors = 100 * (bachelorsE / summary_est)) %>%
+  mutate(percent_masters = 100 * (mastersE / summary_est)) %>%
+  mutate(percent_professional = 100 * (professionalE / summary_est)) %>%
+  mutate(percent_phd = 100 * (phdE / summary_est)) %>%
+  dplyr::select(GEOID, NAME, percent_hs_grad,
+                percent_some_college,percent_associates,
+                percent_bachelors, percent_masters,
+                percent_professional,percent_phd
+                )
+
+ 
+```
+
+```{r}
+# MEDIAN AGE BY SEX FOR WORKERS 16 TO 64 
+
+age_vars <- c(med_age_male = "B23013_002",
+              med_age_female="B23013_003"
+)
+
+IL_age<- get_acs(
+  geography = "tract",
+  state = "IL",
+  county = "Cook",
+  variables = age_vars,
+  geometry = TRUE,
+  summary_var= "B23013_001",
+  output = "wide",
+  year = 2020
+  )
+
+IL_age <- IL_age %>%
+  mutate(average_age = ((med_age_maleE + med_age_femaleE)/2)) %>% #Creating a new variable for avg age independent of sex
+  dplyr::select(-med_age_maleM, -med_age_femaleM, -summary_est, -summary_moe, -med_age_maleE, -med_age_femaleE)
+
+```
+
+```{r}
+
+#MEDIAN INCOME IN THE PAST 12 MONTHS (IN 2017 INFLATION-ADJUSTED DOLLARS) BY PLACE OF BIRTH IN THE UNITED STATES
+
+medincome_vars <- c(medincome_statenative = "B06011_002",
+                    medincome_outofstate = "B06011_003",
+                    medincome_native = "B06011_004",
+                    medincome_foreign = "B06011_005"
+)
+
+IL_medincome<- get_acs(
+  geography = "tract",
+  state = "IL",
+  county = "Cook",
+  variables = medincome_vars,
+  geometry = TRUE,
+  summary_var= "B06011_001",
+  output = "wide",
+  year = 2020
+  )
+
+IL_medincome <- IL_medincome %>%
+  dplyr::select(-medincome_statenativeM,
+                    -medincome_outofstateM, 
+                    -medincome_nativeM, 
+                    -medincome_foreignM,
+                 -summary_est, -summary_moe)
+
+
+```
+
+```{r}
+## GENDER COMPOSITION 
+##Total count MALE by AGE
+
+gender_vars <- c(early_twenties = "B01001_010",
+                  late_twenties = "B01001_011",
+                    early_thirties= "B01001_012",
+                    late_thirties = "B01001_013",
+                  early_forties = "B01001_014",
+                  late_forties = "B01001_015",
+                  early_fifties = "B01001_016",
+                  late_fifties = "B01001_017",
+                  early_sixties = "B01001_018"
+)
+
+IL_gender<- get_acs(
+  geography = "tract",
+  state = "IL",
+  county = "Cook",
+  variables = gender_vars,
+  geometry = TRUE,
+  summary_var= "B01001_002",
+  output = "wide",
+  year = 2020
+  )
+
+IL_gender_percent <- IL_gender%>%
+  dplyr::select(GEOID, NAME,summary_est) # For this one, we just need the summary estimate to then divide by population to create gender proportion per tract
+
+
+```
+
+
+# NOW TO COMBINE ALL THE DEMOGRAPHIC VARS TOGETHER
+
+```{r}
+
+#Adding race and educational attainment together
+demographic_vars <- left_join(IL_race_percent, IL_educ_percent %>% as.data.frame() %>% dplyr::select(-geometry), by = "GEOID")
+
+demographic_vars <- demographic_vars %>%
+  dplyr::select(-NAME.y)
+
+#Adding population data
+demographic_vars <- left_join(demographic_vars, population_data %>% as.data.frame() %>% dplyr::select(-geometry), by = "GEOID")
+
+demographic_vars <- demographic_vars %>%
+  dplyr::select(-NAME.x)
+
+
+#Adding median age
+
+demographic_vars <- left_join(demographic_vars, IL_age %>% as.data.frame() %>% dplyr::select(-geometry), by = "GEOID")
+
+demographic_vars <- demographic_vars %>%
+  dplyr::select(-NAME.y)
+
+#Adding Median income
+
+demographic_vars <- left_join(demographic_vars, IL_medincome %>% as.data.frame() %>% dplyr::select(-geometry), by = "GEOID")
+
+demographic_vars <- demographic_vars %>%
+  dplyr::select(-NAME.x)
+
+
+#Adding Percent Male
+
+demographic_vars <- left_join(demographic_vars, IL_gender_percent %>% as.data.frame() %>% dplyr::select(-geometry), by = "GEOID")
+
+demographic_vars <- demographic_vars %>%
+  dplyr::select(-NAME.y)
+
+demographic_vars <- demographic_vars %>%
+  mutate(percent_male = summary_est/pop_estimate) %>%
+  dplyr::select(-summary_est)
+
+
+# Adding in rate of first dose vaccination
+vax_tract <- read.csv("vax_per_tract.csv")
+
+#need to transform GEOID into character in order for this to work...
+
+vax_tract$GEOID <- as.character(vax_tract$GEOID)
+
+demographic_vars <- left_join(demographic_vars, vax_tract %>% as.data.frame(), by = "GEOID")
+
+write.csv(demographic_vars,"C:/Users/label/Desktop/STATS/Final_Paper_Stuff/Chicago_wide_Demovars.csv", row.names = FALSE)
+```
+
+# Getting Geometry Files in order to merge
+```{r}
+options(tigris_use_cache = TRUE)
+library(tigris)
+
+IL_tracts <- tracts(state="IL", county ="Cook")
+
+class(IL_tracts)
+
+st_crs(IL_tracts)
+
+IL_tracts <- st_set_crs(IL_tracts, 3529)
+```
+
+
+# Joining all the data together!!
+```{r}
+
+#Combining restaurant data with IL tract info to get common GEOID column
+
+#library(geometr)
+
+# Trying to fix the CRS for restaurant data
+#rest_data_sf <- setCRS(rest_data_sf, 4269)
+
+#Maybe I need to do the same for the IL_tracts data?
+#IL_tracts <- setCRS(IL_tracts, 4269) 
+
+combined_df <- st_join(IL_tracts, rest_data_sf)
+
+combined_df <- combined_df%>%
+  dplyr::select(-id, -alias, - STATEFP, -COUNTYFP, -TRACTCE, -NAME, -NAMELSAD, -MTFCC, -FUNCSTAT, -ALAND, -AWATER, -INTPTLAT, -INTPTLON, -distance, -review_count, -categories)
+
+
+write.csv(combined_df, "C:/Users/label/Desktop/STATS/Final_Paper_Stuff/CHICAGO_wide_restaurant_data_and_tracts.csv", row.names = FALSE)
+
+class(combined_df)
+
+FOR_GEODA_ONLY <- combined_df %>%
+  filter(name != "NA")
+
+
+write_sf(FOR_GEODA_ONLY,"FOR_GEODA.gpkg")
+
+
+
+#ATTEMPTING TO ADD NEW DEMOGRAPHIC DATA INTO COMBINED DF USING GEOID
+
+#new_df <- left_join(combined_df, demographic_vars %>% as.data.frame() %>% dplyr::select(-geometry, by = "GEOID"))
+#The above version throws an error. Doesn't recognize GEOID as a common column for some reason.
+
+joined_df <- left_join(demographic_vars, combined_df%>% as.data.frame() %>% dplyr::select(-geometry), by = "GEOID")
+
+
+
+write.csv(joined_df,"C:/Users/label/Desktop/STATS/Final_Paper_Stuff/CHICAGO_wide_spatial_data.csv", row.names = FALSE)
+
+class(joined_df)
+
+#Trying to remove empty geometries so this will work
+joined_df <- joined_df %>% 
+  filter(!st_is_empty(.))
+
+
+# st_write(joined_df,"CHICAGO_wide.shp", append=FALSE) --->> NOT WORKING
+
+# Turning the df into a gpkg because it can handle more layers
+
+joined_df$GEOID <- as.character(joined_df$GEOID)
+
+write_sf(joined_df,"CHICAGO_wide.gpkg")
+
+#I think I have to merge the comm areas shapefile with my current shapefile to be able to use in GEODa !! Maybe I don't have to do this in r....
+
+
+```
+
+# Checking Correlations
+```{r}
+library(corrr)
+
+corr_estimates <- joined_df %>%
+  dplyr::select(percentWhite, percentWhite, percent_hs_grad ,
+                percent_male , medincome_statenativeE, 
+                 average_age , pop_estimate, avg_first_dose) %>%
+  st_drop_geometry()
+
+correlations <- correlate(corr_estimates, method = "pearson")
+
+network_plot(correlations)
+
+```
+
+
+# Following Burkey Academy's Spatial Regression Tutorial
+```{r, spatial_regression_setup}
+
+library(spdep)
+library(rgdal)
+
+#Setting up shapefile and weights
+
+CHIspatial.data <- st_read("CHICAGO_wide.gpkg")
+queen.nb = poly2nb(CHIspatial.data)
+rook.nb =poly2nb(CHIspatial.data, queen=FALSE)
+
+queen_1 <- nb2listw(queen.nb, zero.policy = TRUE)
+
+#Making a map of some of these variables 
+spplot(CHIspatial.data, "percentWhite")
+spplot(CHIspatial.data, "percent_hs_grad")
+spplot(CHIspatial.data, "average_age")
+spplot(CHIspatial.data, "log(medincome_statenativeE")
+spplot(CHIspatial.data, "percent_male")
+spplot(CHIspatial.data, "pop_estimate")
+spplot(CHIspatial.data, "avg_first_dose")
+
+
+```
+
+# Testing different regression models
+``` {r, spatial_regression}
+## Setting up our regression equations for Asian restaurants 
+
+reg.eq1=rating_asian~percentWhite+percent_hs_grad+average_age+log(medincome_statenativeE)+percent_male+pop_estimate+avg_first_dose
+
+reg.eq1.2=avg_polarity_asian~percentWhite+percent_hs_grad+average_age+log(medincome_statenativeE)+percent_male+pop_estimate+avg_first_dose
+
+reg.eq1.3=avg_subjectivity_asian~percentWhite+percent_hs_grad+average_age+log(medincome_statenativeE)+percent_male+pop_estimate+avg_first_dose
+
+
+## Setting up our regression equations for Italian restaurants 
+
+reg.eq2=rating_italian~percentWhite+percent_hs_grad+average_age+log(medincome_statenativeE)+percent_male+pop_estimate+avg_first_dose
+
+reg.eq2.2=avg_polarity_italian~percentWhite+percent_hs_grad+average_age+log(medincome_statenativeE)+percent_male+pop_estimate+avg_first_dose
+
+reg.eq2.3=avg_subjectivity_italian~percentWhite+percent_hs_grad+average_age+log(medincome_statenativeE)+percent_male+pop_estimate+avg_first_dose
+
+
+## Setting up our regression equations for Latin American restaurants 
+
+reg.eq3=rating_latin_american~percentWhite+percent_hs_grad+average_age+log(medincome_statenativeE)+percent_male+pop_estimate+avg_first_dose
+
+reg.eq3.2=avg_polarity_latin_american~percentWhite+percent_hs_grad+average_age+log(medincome_statenativeE)+percent_male+pop_estimate+avg_first_dose
+
+reg.eq3.3=avg_subjectivity_latin_american~percentWhite+percent_hs_grad+average_age+log(medincome_statenativeE)+percent_male+pop_estimate+avg_first_dose
+
+options(scipen=7) #turning off scientific notation for reasonably sized values
+
+
+
+### RUNNING FOUR SIMPLE MODELS: OLS, SLX, Lag Y, and Lag Error
+
+## ****OLS****
+
+### ASIAN RESTAURANTS
+# Rating  
+reg1 = lm(reg.eq1, data=CHIspatial.data)
+summary(reg1)
+
+# Moran's i test
+lm.morantest(reg1, queen_1, zero.policy=TRUE) 
+
+#Testing the VIF of these variables
+library(car)
+vif(reg1) # We're good! Minimal multicollinearity between these variables
+
+#Running some more tests
+lm.LMtests(reg1, queen_1, zero.policy=TRUE, test="all")
+
+
+# Polarity 
+reg1.2 = lm(reg.eq1.2, data=CHIspatial.data)
+summary(reg1.2)
+
+#Subjectivity
+reg1.3 = lm(reg.eq1.3, data=CHIspatial.data)
+summary(reg1.3)
+
+
+
+### ITALIAN RESTAURANTS
+# Rating  
+reg2 = lm(reg.eq2, data=CHIspatial.data)
+summary(reg2)
+
+# Polarity
+reg2.2 = lm(reg.eq2.2, data=CHIspatial.data)
+summary(reg2.2)
+
+# Subjectivity
+reg2.3 = lm(reg.eq2.3, data=CHIspatial.data)
+summary(reg2.3)
+
+
+### LATIN AMERICAN RESTAURANTS
+# Rating  
+reg3 = lm(reg.eq3, data=CHIspatial.data)
+summary(reg3)
+
+## Polarity 
+reg3.2 = lm(reg.eq3.2, data=CHIspatial.data)
+summary(reg3.2)
+
+# Subjectivity 
+reg3.3 = lm(reg.eq3.3, data=CHIspatial.data)
+summary(reg3.3)
+
+
+
+
+## **** SLX - Spatially lagged X --> y=xB + WxT+e, where T=Theta ***
+library(spatialreg)
+
+### ASIAN RESTAURANTS
+#Rating
+SLXreg1= lmSLX(reg.eq1, data=CHIspatial.data, queen_1, zero.policy=TRUE, na.action=)
+summary(SLXreg1)
+impacts(SLXreg1)
+
+# Checking for the marginal effects (overall impact)
+summary(impacts(SLXreg1, listw=queen_1, R=500), zstats=TRUE) #adds zstats, pvals; calculates standard errors and pvals for the total effects 
+
+class(sum_rating_asian)
+
+#Exporting the summary table
+write.table(sum_rating_asian, file = "sum_rating_asian.txt", sep = ",", quote = FALSE, row.names = F)
+
+#Polarity
+SLXreg1.2= lmSLX(reg.eq1.2, data=CHIspatial.data, queen_1, zero.policy=TRUE)
+summary(SLXreg1.2)
+
+summary(impacts(SLXreg1.2, listw=queen_1, R=500), zstats=TRUE)
+
+
+
+#Subjectivity
+SLXreg1.3= lmSLX(reg.eq1.3, data=CHIspatial.data, queen_1, zero.policy=TRUE)
+summary(SLXreg1.3)
+
+summary(impacts(SLXreg1.3, listw=queen_1, R=500), zstats=TRUE)
+
+### ITALIAN RESTAURANTS
+#Rating
+SLXreg2= lmSLX(reg.eq2, data=CHIspatial.data, queen_1, zero.policy=TRUE)
+summary(SLXreg2)
+
+summary(impacts(SLXreg2, listw=queen_1, R=500), zstats=TRUE)
+
+# Polarity
+SLXreg2.2= lmSLX(reg.eq2.2, data=CHIspatial.data, queen_1, zero.policy=TRUE)
+summary(SLXreg2.2)
+
+summary(impacts(SLXreg2.2, listw=queen_1, R=500), zstats=TRUE)
+
+# Subjectivity
+SLXreg2.3= lmSLX(reg.eq2.3, data=CHIspatial.data, queen_1, zero.policy=TRUE)
+summary(SLXreg2.3)
+
+summary(impacts(SLXreg2.3, listw=queen_1, R=500), zstats=TRUE)
+
+
+
+### LATIN AMERICAN RESTAURANTS
+#Rating
+SLXreg3= lmSLX(reg.eq3, data=CHIspatial.data, queen_1, zero.policy=TRUE)
+summary(SLXreg3)
+
+summary(impacts(SLXreg3, listw=queen_1, R=500), zstats=TRUE)
+
+#Polarity
+SLXreg3.2= lmSLX(reg.eq3.2, data=CHIspatial.data, queen_1, zero.policy=TRUE)
+summary(SLXreg3.2)
+
+summary(impacts(SLXreg3.2, listw=queen_1, R=500), zstats=TRUE)
+
+#Subjectivity
+SLXreg3.3= lmSLX(reg.eq3.3, data=CHIspatial.data, queen_1, zero.policy=TRUE)
+summary(SLXreg3.3)
+
+summary(impacts(SLXreg3.3, listw=queen_1, R=500), zstats=TRUE)
+
+stargazer(sum_rating_LA, sum_pol_LA, sum_subj_LA,
+          title = "Summary of Impact of Rating, Polarity, and Subjectivity on Latin American Restaurants", 
+          out = "C:/Users/label/Desktop/THESIS DATA/LA_Summary_Table.html")
+
+```
+
+#Writing out the tables to create shareable results
+```{r, Result_exporting}
+
+library(stargazer)
+
+stargazer(SLXreg1, SLXreg1.2, SLXreg1.3, 
+          title = "SLX Regression for Asian Restaurants",
+          column.labels=c("Rating","Polarity", "Subjectivity"), 
+          covariate.labels = c("Percent White",
+                            "Percent H.S. Grad",
+                            "Average Age", 
+                            "Log(Median Income of State Native",
+                            "Percent Male",
+                            "Population Estimate",
+                            "Percentage of First Dose recipients",
+                            "Lagged Percent White",
+                            "Lagged Percent H.S. Grad",
+                            "Lagged Average Age", 
+                            "Lagged Log(Median Income of State Native)",
+                            "Lagged Percent Male",
+                            "Lagged Population Estimate",
+                            "Lagged Percentage of First Dose recipients"),
+          out = "C:/Users/label/Desktop/THESIS DATA/Asian_Restaurants_Regression_Table.html")
+
+
+stargazer(SLXreg2, SLXreg2.2, SLXreg2.3, 
+          type="html",
+          title = "SLX Regression for Italian Restaurants",
+          column.labels=c("Rating","Polarity", "Subjectivity"), 
+          covariate.labels = c("Percent White",
+                            "Percent H.S. Grad",
+                            "Average Age", 
+                            "Log(Median Income of State Native",
+                            "Percent Male",
+                            "Population Estimate",
+                            "Percentage of First Dose recipients",
+                            "Lagged Percent White",
+                            "Lagged Percent H.S. Grad",
+                            "Lagged Average Age", 
+                            "Lagged Log(Median Income of State Native)",
+                            "Lagged Percent Male",
+                            "Lagged Population Estimate",
+                            "Lagged Percentage of First Dose recipients"),
+          out = "C:/Users/label/Desktop/THESIS DATA/Italian_Restaurants_Regression_Table.html")
+
+stargazer(SLXreg3, SLXreg3.2, SLXreg3.3, 
+          type="html",
+          title = "SLX Regression for Latin American Restaurants",
+          column.labels=c("Rating","Polarity", "Subjectivity"), 
+          covariate.labels = c("Percent White",
+                            "Percent H.S. Grad",
+                            "Average Age", 
+                            "Log(Median Income of State Native",
+                            "Percent Male",
+                            "Population Estimate",
+                            "Percentage of First Dose recipients",
+                            "Lagged Percent White",
+                            "Lagged Percent H.S. Grad",
+                            "Lagged Average Age", 
+                            "Lagged Log(Median Income of State Native)",
+                            "Lagged Percent Male",
+                            "Lagged Population Estimate",
+                            "Lagged Percentage of First Dose recipients"),
+          out = "C:/Users/label/Desktop/THESIS DATA/LA_Restaurants_Regression_Table.html")
+
+
+
+```
