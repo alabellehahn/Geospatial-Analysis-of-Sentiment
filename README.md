@@ -7,7 +7,7 @@
 - [Data Wrangling and Regression Code for Chicago](https://github.com/alabellehahn/Geospatial-Analysis-of-Sentiment/blob/main/Data%20Wrangling%20Chicago.Rmd)
 
 ## Purpose of this repository
-This repository contains the R code and data required to reproduce the findings in my Masters Thesis "The Impact of Pandemic-Induced Anti-Asian Sentiment on Asian Restaurants: Analyzing User Engagement with Yelp Reviews." The report utilized data specific to Chicago area restaurants, but web scraping was performed for both DC and Los Angeles as well. Users are free to tweak the code and perform the same geospatial analyses for these cities as well. 
+This repository contains the R code and data required to reproduce the findings in my Masters Thesis "The Impact of Pandemic-Induced Anti-Asian Sentiment on Asian Restaurants: Analyzing User Engagement with Yelp Reviews." The report utilized data specific to Chicago area restaurants, but web scraping was performed for both DC and Los Angeles as well. Please refer to a separate repository entitled [Yelp Restaurant Data Collection in Python](https://github.com/alabellehahn/Yelp-Restaurant-Data-Collection-in-Python) for the code used to retrieve data. Users are free to tweak the code and perform the same geospatial analyses for these cities as well. 
 
 ## Required Libraries
 - library(sf)
