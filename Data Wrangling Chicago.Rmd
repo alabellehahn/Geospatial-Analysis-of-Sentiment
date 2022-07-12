@@ -51,7 +51,7 @@ restaurant_data <- restaurant_data %>%
 
 
 
-#REmoving unnecessary columns
+#Removing unnecessary columns
 restaurant_data <- restaurant_data %>%
   dplyr::select(-url, -review, -transactions, -review, -polarity, -subjectivity,-punctuation, -stopwords, -lowercase, -stopword_rate, -stopword_count,-char_count,-word_count, -image_url, -is_closed, -clean_review, -lemmatized, -price, -location, -phone, -display_phone, - cuisine_type)
 
@@ -455,15 +455,6 @@ rook.nb =poly2nb(CHIspatial.data, queen=FALSE)
 
 queen_1 <- nb2listw(queen.nb, zero.policy = TRUE)
 
-#Making a map of some of these variables 
-spplot(CHIspatial.data, "percentWhite")
-spplot(CHIspatial.data, "percent_hs_grad")
-spplot(CHIspatial.data, "average_age")
-spplot(CHIspatial.data, "log(medincome_statenativeE")
-spplot(CHIspatial.data, "percent_male")
-spplot(CHIspatial.data, "pop_estimate")
-spplot(CHIspatial.data, "avg_first_dose")
-
 
 ```
 
@@ -497,9 +488,11 @@ reg.eq3.3=avg_subjectivity_latin_american~percentWhite+percent_hs_grad+average_a
 
 options(scipen=7) #turning off scientific notation for reasonably sized values
 
+```
 
 
 ### RUNNING FOUR SIMPLE MODELS: OLS, SLX, Lag Y, and Lag Error
+```{r, OLS}
 
 ## ****OLS****
 
@@ -557,14 +550,17 @@ reg3.3 = lm(reg.eq3.3, data=CHIspatial.data)
 summary(reg3.3)
 
 
+```
 
+
+```{r, SLX}
 
 ## **** SLX - Spatially lagged X --> y=xB + WxT+e, where T=Theta ***
 library(spatialreg)
 
 ### ASIAN RESTAURANTS
 #Rating
-SLXreg1= lmSLX(reg.eq1, data=CHIspatial.data, queen_1, zero.policy=TRUE, na.action=)
+SLXreg1= lmSLX(reg.eq1, data=CHIspatial.data, queen_1, zero.policy=TRUE)
 summary(SLXreg1)
 impacts(SLXreg1)
 
@@ -574,7 +570,7 @@ summary(impacts(SLXreg1, listw=queen_1, R=500), zstats=TRUE) #adds zstats, pvals
 class(sum_rating_asian)
 
 #Exporting the summary table
-write.table(sum_rating_asian, file = "sum_rating_asian.txt", sep = ",", quote = FALSE, row.names = F)
+#write.table(sum_rating_asian, file = "sum_rating_asian.txt", sep = ",", quote = FALSE, row.names = F)
 
 #Polarity
 SLXreg1.2= lmSLX(reg.eq1.2, data=CHIspatial.data, queen_1, zero.policy=TRUE)
@@ -630,9 +626,102 @@ summary(SLXreg3.3)
 
 summary(impacts(SLXreg3.3, listw=queen_1, R=500), zstats=TRUE)
 
-stargazer(sum_rating_LA, sum_pol_LA, sum_subj_LA,
-          title = "Summary of Impact of Rating, Polarity, and Subjectivity on Latin American Restaurants", 
-          out = "C:/Users/label/Desktop/THESIS DATA/LA_Summary_Table.html")
+#stargazer(sum_rating_LA, sum_pol_LA, sum_subj_LA,
+          #title = "Summary of Impact of Rating, Polarity, and Subjectivity on Latin American Restaurants", 
+        # out = "C:/Users/label/Desktop/THESIS DATA/LA_Summary_Table.html")
+
+```
+## Spatial Lag (Autoregressive) Model y= pWy + XB + e
+```{r, SLM}
+
+### ASIAN RESTAURANTS
+#Rating
+SLMreg1=lagsarlm(reg.eq1, data=CHIspatial.data, queen_1, zero.policy=TRUE)
+impacts(SLMreg1, listw = queen_1)
+summary(impacts(SLMreg1, listw = queen_1, R=500, zstats=TRUE))
+
+#Polarity
+Sreg1.2= lmSLX(reg.eq1.2, data=CHIspatial.data, queen_1, zero.policy=TRUE)
+summary(SLXreg1.2)
+
+summary(impacts(SLXreg1.2, listw=queen_1, R=500), zstats=TRUE)
+
+
+
+#Subjectivity
+SLXreg1.3= lmSLX(reg.eq1.3, data=CHIspatial.data, queen_1, zero.policy=TRUE)
+summary(SLXreg1.3)
+
+```
+
+```{r, Spatial Error Model}
+
+### ASIAN RESTAURANTS
+#Rating
+SEMreg1=errorsarlm(reg.eq1, data=CHIspatial.data, queen_1, zero.policy=TRUE)
+summary(SEMreg1)
+
+#Using a Hausman test to check to see if OLS and Spatial Error model are congruent which will tell us if their estimates match the underlying parameter estimates 
+Hausman.test(SEMreg1)
+
+
+#Polarity
+SEMreg1.2= errorsarlm(reg.eq1.2, data=CHIspatial.data, queen_1, zero.policy=TRUE)
+summary(SEMreg1.2)
+
+Hausman.test(SEMreg1.2)
+
+
+
+#Subjectivity
+SEMreg1.3= errorsarlm(reg.eq1.3, data=CHIspatial.data, queen_1, zero.policy=TRUE)
+summary(SEMreg1.3)
+
+Hausman.test(SEMreg1.3)
+
+
+### ITALIAN RESTAURANTS
+#Rating
+SEMreg2=errorsarlm(reg.eq2, data=CHIspatial.data, queen_1, zero.policy=TRUE)
+summary(SEMreg2)
+
+Hausman.test(SEMreg2)
+
+#Polarity
+SEMreg2.2= errorsarlm(reg.eq2.2, data=CHIspatial.data, queen_1, zero.policy=TRUE)
+summary(SEMreg2.2)
+
+Hausman.test(SEMreg2.2)
+
+
+#Subjectivity
+SEMreg2.3= errorsarlm(reg.eq2.3, data=CHIspatial.data, queen_1, zero.policy=TRUE)
+summary(SEMreg2.3)
+
+Hausman.test(SEMreg2.3)
+
+
+### LATIN AMERICAN RESTAURANTS
+#Rating
+SEMreg3=errorsarlm(reg.eq3, data=CHIspatial.data, queen_1, zero.policy=TRUE)
+summary(SEMreg3)
+
+Hausman.test(SEMreg3)
+
+
+#Polarity
+SEMreg3.2= errorsarlm(reg.eq3.2, data=CHIspatial.data, queen_1, zero.policy=TRUE)
+summary(SEMreg3.2)
+
+Hausman.test(SEMreg3.2) ### THIS ONE MAY NOT BE TRUE TO UNDERLYING PARAMETER ESTIMATES
+
+#Subjectivity
+SEMreg3.3= errorsarlm(reg.eq3.3, data=CHIspatial.data, queen_1, zero.policy=TRUE)
+summary(SEMreg3.3)
+
+Hausman.test(SEMreg3.3)
+
+
 
 ```
 
@@ -641,25 +730,48 @@ stargazer(sum_rating_LA, sum_pol_LA, sum_subj_LA,
 
 library(stargazer)
 
-stargazer(SLXreg1, SLXreg1.2, SLXreg1.3, 
-          title = "SLX Regression for Asian Restaurants",
+stargazer(SEMreg1, SEMreg1.2, SEMreg1.3, 
+          title = "Spatial Error Model for Asian Restaurants",
           column.labels=c("Rating","Polarity", "Subjectivity"), 
           covariate.labels = c("Percent White",
-                            "Percent H.S. Grad",
-                            "Average Age", 
-                            "Log(Median Income of State Native",
-                            "Percent Male",
-                            "Population Estimate",
-                            "Percentage of First Dose recipients",
-                            "Lagged Percent White",
-                            "Lagged Percent H.S. Grad",
-                            "Lagged Average Age", 
-                            "Lagged Log(Median Income of State Native)",
-                            "Lagged Percent Male",
-                            "Lagged Population Estimate",
-                            "Lagged Percentage of First Dose recipients"),
-          out = "C:/Users/label/Desktop/THESIS DATA/Asian_Restaurants_Regression_Table.html")
+                               "Percent H.S. Grad",
+                               "Average Age",
+                               "Log(Median Income of State Native",
+                               "Percent Male",
+                               "Population Estimate",
+                               "Percentage of First Dose recipients",
+                               "Incercept"),                           
+          out = "C:/Users/label/Desktop/THESIS DATA/Asian_Restaurants_SEM_Table.html")
 
+
+stargazer(SEMreg2, SEMreg2.2, SEMreg2.3, 
+          title = "Spatial Error Model for Italian Restaurants",
+          column.labels=c("Rating","Polarity", "Subjectivity"), 
+          covariate.labels = c("Percent White",
+                               "Percent H.S. Grad",
+                               "Average Age",
+                               "Log(Median Income of State Native",
+                               "Percent Male",
+                               "Population Estimate",
+                               "Percentage of First Dose recipients",
+                               "Incercept"),                           
+          out = "C:/Users/label/Desktop/THESIS DATA/Italian_Restaurants_SEM_Table.html")
+
+stargazer(SEMreg3, SEMreg3.2, SEMreg3.3, 
+          title = "Spatial Error Model for Latin American Restaurants",
+          column.labels=c("Rating","Polarity", "Subjectivity"), 
+          covariate.labels = c("Percent White",
+                               "Percent H.S. Grad",
+                               "Average Age",
+                               "Log(Median Income of State Native",
+                               "Percent Male",
+                               "Population Estimate",
+                               "Percentage of First Dose recipients",
+                               "Incercept"),                           
+          out = "C:/Users/label/Desktop/THESIS DATA/LA_Restaurants_SEM_Table.html")
+
+
+#### OLD Exports for SLX regressions
 
 stargazer(SLXreg2, SLXreg2.2, SLXreg2.3, 
           type="html",
