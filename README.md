@@ -5,6 +5,8 @@
 - [Compiled Yelp Review Data for DC](https://github.com/alabellehahn/Geospatial-Analysis-of-Sentiment/blob/main/review_data_DC.csv)
 - [Compiled Yelp Review Data for Los Angeles](https://github.com/alabellehahn/Geospatial-Analysis-of-Sentiment/blob/main/review_data_Los_Angeles.csv)
 - [Data Wrangling and Regression Code for Chicago](https://github.com/alabellehahn/Geospatial-Analysis-of-Sentiment/blob/main/Data%20Wrangling%20Chicago.Rmd)
+- [Geospatial data for regression analysis](https://github.com/alabellehahn/Geospatial-Analysis-of-Sentiment/blob/main/CHICAGO_wide_FIXED.gpkg)
+- [Data for Colocation Analysis](https://github.com/alabellehahn/Geospatial-Analysis-of-Sentiment/blob/main/Coloc_DATA.csv)
 
 ## Purpose of this repository
 This repository contains the R code and data required to reproduce the findings in my Masters Thesis "The Impact of Pandemic-Induced Anti-Asian Sentiment on Asian Restaurants: Analyzing User Engagement with Yelp Reviews." The report utilized data specific to Chicago area restaurants, but web scraping was performed for both DC and Los Angeles as well. Please refer to a separate repository entitled [Yelp Restaurant Data Collection in Python](https://github.com/alabellehahn/Yelp-Restaurant-Data-Collection-in-Python) for the code used to retrieve data. Users are free to tweak the code and perform the same geospatial analyses for these cities as well. 
